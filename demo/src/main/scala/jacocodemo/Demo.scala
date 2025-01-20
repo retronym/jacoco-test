@@ -1,8 +1,13 @@
 package jacocodemo
 
-import java.io.{ByteArrayOutputStream, PrintStream}
+import org.jacoco.report.FileMultiReportOutput
+import org.jacoco.report.html.HTMLFormatter
+import org.jacoco.report.xml.XMLFormatter
+
+import java.io.{BufferedOutputStream, ByteArrayOutputStream, PrintStream}
 import java.nio.file.Files
 import scala.annotation.nowarn
+import scala.reflect.internal.Flags
 import scala.tools.nsc.plugins.{Plugin, PluginComponent}
 import scala.tools.nsc.transform.TypingTransformers
 import scala.tools.nsc.{Global, Phase}
@@ -43,10 +48,33 @@ object JacocoScalaIntegration {
         | """.stripMargin) :: Nil, run.parserPhase)
     
     if (reporter.hasErrors) sys.exit(1)
-    val loader = new java.net.URLClassLoader(Array(temp.toUri.toURL), this.getClass.getClassLoader)
-    val out = new ByteArrayOutputStream()
-    new CoreTutorial(new PrintStream(out)).execute(temp.toFile, "demo.Coverage")
-    println(new String(out.toByteArray))
+    val result = new CoreTutorial().execute(temp.toFile, "demo.Coverage")
+    import scala.jdk.CollectionConverters._
+
+    val coverage = result.coverage()
+    // for loop
+    val missedCount = coverage.getMethodCounter.getMissedCount()
+    if (missedCount != 0) {
+      println(coverage.getMethodCounter.toString + "\n" + result.toString)
+      val xmlFormatter = new XMLFormatter
+      val out = new ByteArrayOutputStream()
+      val visitor = xmlFormatter.createVisitor(out)
+
+      // Initialize the report with all of the execution and session
+      // information. At this point the report doesn't know about the
+      // structure of the report being created
+      visitor.visitInfo(result.sessionInfos().getInfos, result.executionData().getContents)
+
+      // Populate the report structure with the bundle coverage information.
+      // Call visitGroup if you need groups in your report.
+      visitor.visitBundle(coverage, null)
+
+      // Signal end of structure information to allow report to write all
+      // information out
+      visitor.visitEnd()
+      val csv = out.toString(java.nio.charset.StandardCharsets.UTF_8)
+      println(csv)
+    }
   }
 }
 
@@ -58,7 +86,11 @@ abstract class JacocoGeneratedPlugin extends Plugin {
   override val description: String = "jacoco-generated"
   override val name: String = "jacoco-generated"
 
-  override val components: List[PluginComponent] = List(new PluginComponent with TypingTransformers {
+  override val components: List[PluginComponent] = List(middle, late)
+  private def markAsGenerated(tree: Tree) = {
+    tree.symbol.withAnnotations(List(AnnotationInfo(typeOf[Generated], Nil, Nil)))
+  }
+  private object middle extends PluginComponent with TypingTransformers {
     val global: JacocoGeneratedPlugin.this.global.type = JacocoGeneratedPlugin.this.global
 
     override def newPhase(prev: Phase): Phase = new StdPhase(prev) {
@@ -68,23 +100,50 @@ abstract class JacocoGeneratedPlugin extends Plugin {
     }
 
     override val runsAfter: List[String] = "erasure" :: Nil
-    override val phaseName: String = "jacoco-generated"
+    override val phaseName: String = "jacoco-generated-middle"
 
     def newTransformer(unit: CompilationUnit) = new TypingTransformer(unit) {
 
       override def transform(tree: Tree): Tree = tree match {
         case dd: DefDef =>
+
           if (tree.symbol.isSynthetic) {
-            tree.symbol.withAnnotations(List(AnnotationInfo(typeOf[Generated], Nil, Nil)))
+            markAsGenerated(tree)
           }
-          if (tree.symbol.name.endsWith(nme.LAZY_SLOW_SUFFIX) && tree.symbol.name.stripSuffix(nme.LAZY_SLOW_SUFFIX) == tree.symbol.owner.name) {
-            tree.symbol.withAnnotations(List(AnnotationInfo(typeOf[Generated], Nil, Nil)))
+          if (dd.symbol.name.endsWith(nme.LAZY_SLOW_SUFFIX) && dd.name.stripSuffix(nme.LAZY_SLOW_SUFFIX) == tree.symbol.owner.name) {
+            markAsGenerated(tree)
           }
+
           if (tree.symbol.isConstructor && tree.symbol.owner.isModuleClass && tree.symbol.owner.isSynthetic) {
-            tree.symbol.withAnnotations(List(AnnotationInfo(typeOf[Generated], Nil, Nil)))
+            markAsGenerated(tree)
           }
           if (tree.symbol.isAccessor) {
-            tree.symbol.withAnnotations(List(AnnotationInfo(typeOf[Generated], Nil, Nil)))
+            markAsGenerated(tree)
+          }
+          super.transform(tree);
+        case _ =>
+          super.transform(tree)
+      }
+    }
+  }
+  private object late extends PluginComponent with TypingTransformers {
+    val global: JacocoGeneratedPlugin.this.global.type = JacocoGeneratedPlugin.this.global
+
+    override def newPhase(prev: Phase): Phase = new StdPhase(prev) {
+      override def apply(unit: CompilationUnit): Unit = {
+        newTransformer(unit).transformUnit(unit)
+      }
+    }
+
+    override val runsAfter: List[String] = "delambdafy" :: Nil
+    override val phaseName: String = "jacoco-generated-late"
+
+    def newTransformer(unit: CompilationUnit) = new TypingTransformer(unit) {
+
+      override def transform(tree: Tree): Tree = tree match {
+        case dd: DefDef =>
+          if (tree.symbol.hasFlag(Flags.MIXEDIN)) {
+            markAsGenerated(tree)
           }
 
           super.transform(tree);
@@ -92,5 +151,6 @@ abstract class JacocoGeneratedPlugin extends Plugin {
           super.transform(tree)
       }
     }
-  })
+  }
 }
+
