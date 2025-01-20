@@ -6,6 +6,7 @@ import org.junit.Test
 import java.io.ByteArrayOutputStream
 import java.nio.file.Files
 import scala.annotation.nowarn
+import scala.tools.nsc.backend.jvm.AsmUtils
 import scala.tools.nsc.{Global, Settings}
 import scala.tools.nsc.plugins.Plugin
 import scala.tools.nsc.reporters.StoreReporter
@@ -13,32 +14,35 @@ import scala.tools.nsc.reporters.StoreReporter
 class JacocoScalaIntegration {
 
   object code {
-    val caseClass =
+    def wrap(code: String): String =
       """
         |package demo
         |
         |class Coverage extends Runnable {
-        |  case class C(i: Int)
-        |  def run: Unit = {
-        |    new C(1)
-        |  }
+        |    %s
         |}
-        | """.stripMargin
-    val pattern1 =
+        | """.stripMargin.format(code)
+
+    val caseClass = wrap(
       """
-        |package demo
-        |
-        |class Coverage extends Runnable {
-        |  def foo(a: Any): Unit = {
-        |    a match {
-        |     case c: Coverage =>
-        |    }
-        |  }
-        |  def run: Unit = {
-        |    foo(this)
+        |case class C(i: Int)
+        |def run: Unit = {
+        |  new C(1)
+        |}
+        |""".stripMargin)
+    val pattern1 = wrap(
+      """
+        |def foo(a: Option[String]): Unit = {
+        |  a match {
+        |   case Some(c) =>
+        |   case None =>
         |  }
         |}
-        | """.stripMargin
+        |def run: Unit = {
+        |  foo(Some("a"))
+        |  foo(None)
+        |}
+        |""".stripMargin)
   }
 
   @Test
@@ -47,6 +51,39 @@ class JacocoScalaIntegration {
   @Test
   def pattern1: Unit = {
     // TODO
+    //  public foo(Lscala/Option;)V
+    //    ALOAD 1
+    //    ASTORE 3
+    //    ALOAD 3
+    //    INSTANCEOF scala/Some
+    //    IFEQ L0
+    //    GETSTATIC scala/runtime/BoxedUnit.UNIT : Lscala/runtime/BoxedUnit;
+    //    POP
+    //    RETURN
+    //   L0
+    //    GOTO L1
+    //   L1
+    //    GETSTATIC scala/None$.MODULE$ : Lscala/None$;
+    //    ALOAD 3
+    //    INVOKEVIRTUAL java/lang/Object.equals (Ljava/lang/Object;)Z
+    //    IFEQ L2
+    //    GETSTATIC scala/runtime/BoxedUnit.UNIT : Lscala/runtime/BoxedUnit;
+    //    POP
+    //    RETURN
+
+    // TODO: Exclude these with a filter?
+
+    //   L2
+    //    GOTO L3
+    //   L3
+    //    NEW scala/MatchError
+    //    DUP
+    //    ALOAD 3
+    //    INVOKESPECIAL scala/MatchError.<init> (Ljava/lang/Object;)V
+    //    ATHROW
+    //    MAXSTACK = 3
+    //    MAXLOCALS = 4
+
     test(code.pattern1, instruction = true)
   }
 
@@ -98,6 +135,10 @@ class JacocoScalaIntegration {
       val run = new Run()
       run.compileUnits(newCompilationUnit(code) :: Nil, run.parserPhase)
       if (storeReporter.hasErrors) throw new RuntimeException("Compilation failed: " + storeReporter.infos.toSeq.map(_.toString()))
+      val debug = false
+      if (debug) {
+        println(AsmUtils.textify(AsmUtils.classFromBytes(Files.readAllBytes(temp.resolve("demo/Coverage.class")))))
+      }
 
       new JacocoFacade().execute(temp.toFile, "demo.Coverage")
     } finally {
