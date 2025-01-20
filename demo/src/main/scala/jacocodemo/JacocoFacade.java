@@ -32,7 +32,7 @@ import org.jacoco.core.runtime.RuntimeData;
  * will be instrumented and executed. Finally the coverage information will be
  * dumped.
  */
-public final class CoreTutorial {
+public final class JacocoFacade {
 
     /**
      * The test target we want to see code coverage for.
@@ -57,7 +57,7 @@ public final class CoreTutorial {
      * Creates a new example instance printing to the given stream.
      *
      */
-    public CoreTutorial() {
+    public JacocoFacade() {
     }
     class InstrumentingClassLoader extends ClassLoader{
         private final ClassLoader delegate;

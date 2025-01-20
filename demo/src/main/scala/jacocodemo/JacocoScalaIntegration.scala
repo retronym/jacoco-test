@@ -6,7 +6,6 @@ import org.junit.Test
 import java.io.ByteArrayOutputStream
 import java.nio.file.Files
 import scala.annotation.nowarn
-import scala.tools.nsc.backend.jvm.AsmUtils
 import scala.tools.nsc.{Global, Settings}
 import scala.tools.nsc.plugins.Plugin
 import scala.tools.nsc.reporters.StoreReporter
@@ -52,18 +51,19 @@ class JacocoScalaIntegration {
   }
 
   private def test(code: String, method: Boolean = true, line: Boolean = true, instruction: Boolean = false): Unit = {
-    val result: CoreTutorial.Result = compileRunAndAnalyze(code)
+    val result: JacocoFacade.Result = compileRunAndAnalyze(code)
     val coverage = result.coverage()
     val methodOk = if (method) coverage.getMethodCounter.getMissedCount == 0 else true
     val lineOk = if (line) coverage.getLineCounter.getMissedCount == 0 else true
     val instructionOk = if (instruction) coverage.getInstructionCounter.getMissedCount == 0 else true
+
     val ok = methodOk && lineOk && instructionOk
     if (!ok) {
       throw new RuntimeException("Incomplete coverage: " + xmlReport(result))
     }
   }
 
-  private def xmlReport(result: CoreTutorial.Result) = {
+  private def xmlReport(result: JacocoFacade.Result) = {
     val xmlFormatter = new XMLFormatter
     val out = new ByteArrayOutputStream()
     val visitor = xmlFormatter.createVisitor(out)
@@ -74,7 +74,7 @@ class JacocoScalaIntegration {
     xml
   }
 
-  private def compileRunAndAnalyze(code: String): CoreTutorial.Result = {
+  private def compileRunAndAnalyze(code: String): JacocoFacade.Result = {
     val settings = new Settings()
     settings.embeddedDefaults(getClass.getClassLoader)
     val isInSBT = !settings.classpath.isSetByUser
@@ -99,7 +99,7 @@ class JacocoScalaIntegration {
       run.compileUnits(newCompilationUnit(code) :: Nil, run.parserPhase)
       if (storeReporter.hasErrors) throw new RuntimeException("Compilation failed: " + storeReporter.infos.toSeq.map(_.toString()))
 
-      new CoreTutorial().execute(temp.toFile, "demo.Coverage")
+      new JacocoFacade().execute(temp.toFile, "demo.Coverage")
     } finally {
       deleteRecursive(temp.toFile)
     }
