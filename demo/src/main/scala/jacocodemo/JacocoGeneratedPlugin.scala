@@ -68,17 +68,31 @@ abstract class JacocoGeneratedPlugin extends Plugin {
     override val runsAfter: List[String] = "delambdafy" :: Nil
     override val phaseName: String = "jacoco-generated-late"
 
+    lazy val Objects_requireNonNull = rootMirror.getModuleIfDefined("java.util.Objects").info.member(TermName("requireNonNull")).filter(_.paramss.head.size == 1), List(transform(rhs))
+
     def newTransformer(unit: CompilationUnit) = new TypingTransformer(unit) {
 
       override def transform(tree: Tree): Tree = tree match {
+        // Replace synthetic:  `this.outer = if (outer == null) throw null` with this.outer = Objects.requireNonNull(outer)
+        case If(Apply(Select(Ident(nme.OUTER), nme.eq), List(Literal(Constant(null)))), Throw(Literal(Constant(null))), a @ Assign(lhs, rhs)) if currentOwner.isConstructor =>
+          val replaced = treeCopy.Assign(a, transform(lhs), localTyper.typed(
+            gen.mkCast(gen.mkMethodCall(Objects_requireNonNull, List(transform(rhs))), rhs.tpe)
+          ))
+          replaced
+
         case dd: DefDef =>
+          if (dd.symbol.isConstructor)
+            getClass
           if (tree.symbol.hasFlag(Flags.MIXEDIN)) {
             markAsGenerated(tree)
           }
-
           super.transform(tree);
-        case _ =>
+        case dd: DefDef if (dd.symbol.isConstructor) =>
           super.transform(tree)
+
+        case _ =>
+          val tree1 = super.transform(tree)
+          tree1
       }
     }
   }

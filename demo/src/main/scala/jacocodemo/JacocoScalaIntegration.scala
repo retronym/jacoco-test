@@ -5,6 +5,7 @@ import org.junit.Test
 
 import java.io.ByteArrayOutputStream
 import java.nio.file.Files
+import java.util.Objects
 import scala.annotation.nowarn
 import scala.tools.nsc.backend.jvm.AsmUtils
 import scala.tools.nsc.{Global, Settings}
@@ -43,48 +44,42 @@ class JacocoScalaIntegration {
         |  foo(None)
         |}
         |""".stripMargin)
+
+    val pattern2 = wrap(
+      """
+        |
+        |sealed trait Base
+        |final case class Base_1(sameName: Some[Any]) extends Base
+        |final case class Base_2(sameName: Nested) extends Base
+        |
+        |sealed trait Nested
+        |final case class Nested_1(x: Any) extends Nested
+        |final case class Nested_2(y: Any) extends Nested
+        |
+        |def foo(b: Base): Unit = b match {
+        |  case Base_1(Some(_)) =>
+        |  case Base_2(Nested_1(_)) =>
+        |  case Base_2(Nested_2(_)) =>
+        |}
+        |def run: Unit = {
+        |  foo(new Base_1(Some("a")))
+        |  foo(new Base_2(Nested_1("a")))
+        |  foo(new Base_2(Nested_2("a")))
+        |}
+        |""".stripMargin)
   }
 
   @Test
   def caseClass: Unit = test(code.caseClass)
 
   @Test
-  def pattern1: Unit = {
-    // TODO
-    //  public foo(Lscala/Option;)V
-    //    ALOAD 1
-    //    ASTORE 3
-    //    ALOAD 3
-    //    INSTANCEOF scala/Some
-    //    IFEQ L0
-    //    GETSTATIC scala/runtime/BoxedUnit.UNIT : Lscala/runtime/BoxedUnit;
-    //    POP
-    //    RETURN
-    //   L0
-    //    GOTO L1
-    //   L1
-    //    GETSTATIC scala/None$.MODULE$ : Lscala/None$;
-    //    ALOAD 3
-    //    INVOKEVIRTUAL java/lang/Object.equals (Ljava/lang/Object;)Z
-    //    IFEQ L2
-    //    GETSTATIC scala/runtime/BoxedUnit.UNIT : Lscala/runtime/BoxedUnit;
-    //    POP
-    //    RETURN
-
-    // TODO: Exclude these with a filter?
-
-    //   L2
-    //    GOTO L3
-    //   L3
-    //    NEW scala/MatchError
-    //    DUP
-    //    ALOAD 3
-    //    INVOKESPECIAL scala/MatchError.<init> (Ljava/lang/Object;)V
-    //    ATHROW
-    //    MAXSTACK = 3
-    //    MAXLOCALS = 4
-
+  def syntheticThrowNewMatchErrorIgnored: Unit = {
     test(code.pattern1, instruction = true)
+  }
+
+  @Test
+  def syntheticPattern2: Unit = {
+    test(code.pattern2, instruction = true)
   }
 
   private def test(code: String, method: Boolean = true, line: Boolean = true, instruction: Boolean = false): Unit = {
@@ -118,6 +113,7 @@ class JacocoScalaIntegration {
     if (isInSBT) settings.usejavacp.value = true
     settings.release.value = "23"
     settings.target.value = settings.release.value
+    settings.Xprint.value = List("patmat")
     val storeReporter = new StoreReporter(settings)
     val temp = Files.createTempDirectory("jacoco")
     try {
@@ -137,7 +133,17 @@ class JacocoScalaIntegration {
       if (storeReporter.hasErrors) throw new RuntimeException("Compilation failed: " + storeReporter.infos.toSeq.map(_.toString()))
       val debug = false
       if (debug) {
-        println(AsmUtils.textify(AsmUtils.classFromBytes(Files.readAllBytes(temp.resolve("demo/Coverage.class")))))
+        val path = temp.resolve("demo/Coverage.class").toAbsolutePath
+        import scala.tools.asm._
+        import scala.tools.asm.tree._
+        import scala.tools.nsc.backend.jvm.ClassNode1
+        def classFromBytes(bytes: Array[Byte]): ClassNode = {
+          val node = new ClassNode1()
+          new ClassReader(bytes).accept(node, ClassReader.SKIP_FRAMES)
+
+          node
+        }
+        println(AsmUtils.textify(classFromBytes(Files.readAllBytes(path))))
       }
 
       new JacocoFacade().execute(temp.toFile, "demo.Coverage")
