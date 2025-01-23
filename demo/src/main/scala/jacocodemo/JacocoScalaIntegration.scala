@@ -82,6 +82,27 @@ class JacocoScalaIntegration {
     test(code.pattern2, instruction = true)
   }
 
+  @Test
+  def partialFunction: Unit = {
+    val f: PartialFunction[Int, Int] = {
+      case 1 => println("1"); 1
+    }
+
+    val code = this.code.wrap(
+      """|def run: Unit = {
+         |  val f: PartialFunction[Int, Int] = {
+         |    case x if { println(Thread.currentThread().getStackTrace.toSeq.drop(1).head.getMethodName + "(" + x + ")"); x == 1 } => println("matched"); 1
+         |  }
+         |  try { f.applyOrElse(0, (x: Int) => println("default")) }
+//         |  try { f.apply(0) } catch { case _: MatchError => }
+         |  f.isDefinedAt(0)
+         |  f.apply(1)
+         |  f.isDefinedAt(1)
+         |}
+         |""".stripMargin)
+    test(code, instruction = true)
+  }
+
   private def test(code: String, method: Boolean = true, line: Boolean = true, instruction: Boolean = false): Unit = {
     val result: JacocoFacade.Result = compileRunAndAnalyze(code)
     val coverage = result.coverage()
@@ -133,7 +154,8 @@ class JacocoScalaIntegration {
       if (storeReporter.hasErrors) throw new RuntimeException("Compilation failed: " + storeReporter.infos.toSeq.map(_.toString()))
       val debug = false
       if (debug) {
-        val path = temp.resolve("demo/Coverage.class").toAbsolutePath
+        // walk files in temp
+
         import scala.tools.asm._
         import scala.tools.asm.tree._
         import scala.tools.nsc.backend.jvm.ClassNode1
@@ -143,7 +165,8 @@ class JacocoScalaIntegration {
 
           node
         }
-        println(AsmUtils.textify(classFromBytes(Files.readAllBytes(path))))
+        Files.walk(temp).forEach(p =>
+          if (!Files.isDirectory(p)) { println(AsmUtils.textify(classFromBytes(Files.readAllBytes(p)))) })
       }
 
       new JacocoFacade().execute(temp.toFile, "demo.Coverage")

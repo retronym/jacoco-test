@@ -12,9 +12,7 @@
  *******************************************************************************/
 package jacocodemo;
 
-import java.io.File;
-import java.io.IOException;
-import java.io.InputStream;
+import java.io.*;
 import java.net.MalformedURLException;
 import java.net.URL;
 import java.net.URLClassLoader;
@@ -26,6 +24,9 @@ import org.jacoco.core.instr.Instrumenter;
 import org.jacoco.core.runtime.IRuntime;
 import org.jacoco.core.runtime.LoggerRuntime;
 import org.jacoco.core.runtime.RuntimeData;
+import org.objectweb.asm.ClassReader;
+import org.objectweb.asm.tree.ClassNode;
+import org.objectweb.asm.util.TraceClassVisitor;
 
 /**
  * Example usage of the JaCoCo core API. In this tutorial a single target class
@@ -79,6 +80,16 @@ public final class JacocoFacade {
                 InputStream resourceAsStream = delegate.getResourceAsStream(name.replace(".", "/") + ".class");
                 try {
                     byte[] bytes = instrumenter.instrument(resourceAsStream, name);
+
+                    var node = new ClassNode();
+                    new ClassReader(bytes).accept(node, ClassReader.SKIP_FRAMES);
+                    var trace = new TraceClassVisitor(new PrintWriter(new StringWriter()));
+                    node.accept(trace);
+                    var sw = new StringWriter();
+                    var pw = new PrintWriter(sw);
+                    trace.p.print(pw);
+                    String out = sw.toString();
+                    System.out.println("" + name + ": " + out);
                     return defineClass(name, bytes, 0, bytes.length);
                 } catch (IOException e) {
                     throw new RuntimeException(e);

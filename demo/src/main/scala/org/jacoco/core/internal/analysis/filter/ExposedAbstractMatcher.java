@@ -12,8 +12,13 @@
  *******************************************************************************/
 package org.jacoco.core.internal.analysis.filter;
 
+import org.objectweb.asm.Opcodes;
 import org.objectweb.asm.tree.*;
+import org.objectweb.asm.util.Textifier;
+import org.objectweb.asm.util.TraceMethodVisitor;
 
+import java.io.PrintWriter;
+import java.io.StringWriter;
 import java.util.HashMap;
 import java.util.Map;
 
@@ -113,4 +118,21 @@ public abstract class ExposedAbstractMatcher {
 		return AbstractMatcher.skipNonOpcodes(cursor);
 	}
 
+	@Override
+	public String toString() {
+		if (cursor() == null) {
+			return "null";
+		}
+		var node = cursor();
+		var sw = new StringWriter();
+		var pw = new PrintWriter(sw);
+		while (node != null) {
+			Textifier textifier = new Textifier();
+			TraceMethodVisitor trace = new TraceMethodVisitor(textifier);
+			node.accept(trace);
+			node = node.getNext();
+			trace.p.print(pw);
+		}
+		return sw.toString();
+	}
 }

@@ -68,7 +68,7 @@ abstract class JacocoGeneratedPlugin extends Plugin {
     override val runsAfter: List[String] = "delambdafy" :: Nil
     override val phaseName: String = "jacoco-generated-late"
 
-    lazy val Objects_requireNonNull = rootMirror.getModuleIfDefined("java.util.Objects").info.member(TermName("requireNonNull")).filter(_.paramss.head.size == 1), List(transform(rhs))
+    lazy val Objects_requireNonNull = rootMirror.getModuleIfDefined("java.util.Objects").info.member(TermName("requireNonNull")).filter(_.paramss.head.size == 1)
 
     def newTransformer(unit: CompilationUnit) = new TypingTransformer(unit) {
 
